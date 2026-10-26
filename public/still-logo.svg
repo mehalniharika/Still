@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 100" width="220" height="100">
+  <rect width="220" height="100" fill="transparent"/>
+  <!-- S curved letter -->
+  <path d="M18 68 C6 68 4 56 4 50 C4 36 14 30 26 30 C36 30 44 34 44 42 C44 46 42 50 36 52 C30 54 22 54 18 58 C14 62 14 66 18 68 C22 70 28 70 32 68" 
+        fill="none" stroke="#FF0000" stroke-width="9" stroke-linecap="round"/>
+  <!-- t -->
+  <line x1="54" y1="20" x2="54" y2="72" stroke="#FF0000" stroke-width="9" stroke-linecap="round"/>
+  <line x1="44" y1="40" x2="64" y2="40" stroke="#FF0000" stroke-width="9" stroke-linecap="round"/>
+  <!-- i -->
+  <circle cx="82" cy="24" r="5" fill="#FF0000"/>
+  <line x1="82" y1="36" x2="82" y2="72" stroke="#FF0000" stroke-width="9" stroke-linecap="round"/>
+  <!-- l -->
+  <line x1="104" y1="18" x2="104" y2="72" stroke="#FF0000" stroke-width="9" stroke-linecap="round"/>
+  <!-- l -->
+  <line x1="126" y1="18" x2="126" y2="72" stroke="#FF0000" stroke-width="9" stroke-linecap="round"/>
+</svg>

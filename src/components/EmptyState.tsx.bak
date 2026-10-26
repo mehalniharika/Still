@@ -1,0 +1,148 @@
+import React, { useRef, useState } from 'react';
+import {
+  UploadCloud,
+  Image as ImageIcon,
+  Sparkles,
+  Sliders,
+  Spline,
+  Paintbrush,
+  Download
+} from 'lucide-react';
+
+interface EmptyStateProps {
+  onOpenFile: (file: File) => void;
+  onLoadSample: () => void;
+  isLoadingSample: boolean;
+}
+
+export const EmptyState: React.FC<EmptyStateProps> = ({
+  onOpenFile,
+  onLoadSample,
+  isLoadingSample
+}) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file && (file.type.startsWith('image/') || /\.(jpg|jpeg|png|webp)$/i.test(file.name))) {
+      onOpenFile(file);
+    }
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      onOpenFile(file);
+    }
+    e.target.value = '';
+  };
+
+  return (
+    <div className="empty-state-root">
+      <div className="empty-state-container">
+        {/* Drop Zone Card */}
+        <div
+          className={`dropzone-card ${isDragOver ? 'is-drag-over' : ''}`}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden-file-input"
+            onChange={handleFileInputChange}
+          />
+
+          <div className="dropzone-icon-glow">
+            <UploadCloud size={38} className="dropzone-icon" />
+          </div>
+
+          <h2 className="dropzone-title">Drop your photograph here</h2>
+          <p className="dropzone-subtitle">
+            Supports JPEG, PNG, and WebP at full camera resolution. Never alters your original file.
+          </p>
+
+          <div className="dropzone-actions" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <UploadCloud size={16} />
+              <span>Browse Computer</span>
+            </button>
+
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={onLoadSample}
+              disabled={isLoadingSample}
+            >
+              <ImageIcon size={16} />
+              <span>{isLoadingSample ? 'Generating Photograph...' : 'Load Sample Photo'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Studio Feature Pillars */}
+        <div className="feature-cards-grid">
+          <div className="feature-card">
+            <div className="feature-card-icon">
+              <Sliders size={18} />
+            </div>
+            <div>
+              <h4 className="feature-card-title">Parametric Engine</h4>
+              <p className="feature-card-desc">Non-destructive editing with instant undo/redo ledger</p>
+            </div>
+          </div>
+
+          <div className="feature-card">
+            <div className="feature-card-icon">
+              <Spline size={18} />
+            </div>
+            <div>
+              <h4 className="feature-card-title">Tone Curves</h4>
+              <p className="feature-card-desc">Monotone cubic spline interpolation across RGB & channels</p>
+            </div>
+          </div>
+
+          <div className="feature-card">
+            <div className="feature-card-icon">
+              <Paintbrush size={18} />
+            </div>
+            <div>
+              <h4 className="feature-card-title">Selective Masking</h4>
+              <p className="feature-card-desc">Paint localized alpha masks with live ruby overlay</p>
+            </div>
+          </div>
+
+          <div className="feature-card">
+            <div className="feature-card-icon">
+              <Download size={18} />
+            </div>
+            <div>
+              <h4 className="feature-card-title">Lossless Export</h4>
+              <p className="feature-card-desc">Full native resolution export with JPEG quality control</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
