@@ -114,9 +114,11 @@ a:focus-visible {
 
 .still-logo-img {
   display: block;
-  width: 80px;
-  height: 40px;
+  height: 32px;
+  width: auto;
+  max-height: 36px;
   object-fit: contain;
+  user-select: none;
 }
 
 .toolbar-separator {

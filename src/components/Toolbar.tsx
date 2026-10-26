@@ -71,7 +71,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <div className="brand-lockup">
           {!logoError ? (
             <img
-              src="/still-logo.svg"
+              src="/still-logo.png"
               alt="Still."
               className="still-logo-img"
               onError={() => setLogoError(true)}
