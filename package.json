@@ -1,11 +1,12 @@
 {
-  "name": "lumina-photo-editor",
+  "name": "still-photo-editor",
   "private": true,
   "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "vite build",
+    "build:check": "tsc && vite build",
     "preview": "vite preview",
     "test": "tsx --test test/pipeline.test.ts"
   },

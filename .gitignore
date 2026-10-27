@@ -1,8 +1,21 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Node dependencies
 node_modules
 dist
 dist-ssr
 *.local
+
+# Editor
 .vscode
 .idea
-powershell.cmd
-*.log
+*.suo
+
+# Vercel
+.vercel
