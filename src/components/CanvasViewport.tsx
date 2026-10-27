@@ -4,9 +4,11 @@ import {
   AdjustmentsState,
   BrushSettings,
   CurvesState,
+  ExtendState,
   GeometryState,
   MaskAdjustments,
-  NormalizedRect
+  NormalizedRect,
+  TextOverlayState
 } from '../types/editor';
 import { renderPipeline } from '../engine/processor';
 import { CropOverlay } from './CropOverlay';
@@ -32,6 +34,9 @@ interface CanvasViewportProps {
   // Zoom & view controls
   zoomLevel: number;
   onZoomChange: (zoom: number) => void;
+  // New tool states
+  extendState?: ExtendState;
+  textState?: TextOverlayState;
 }
 
 export const CanvasViewport: React.FC<CanvasViewportProps> = ({
@@ -50,7 +55,9 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   onCropRectChange,
   onMaskStrokeEnd,
   zoomLevel,
-  onZoomChange
+  onZoomChange,
+  extendState,
+  textState
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mainCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -79,6 +86,10 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   // Base rendered dimensions
   const [renderDim, setRenderDim] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
 
+  // Brush rendering throttle ref
+  const brushRenderPendingRef = useRef(false);
+  const brushRafIdRef = useRef<number>(0);
+
   // Initialize/synchronize local mask canvas
   useEffect(() => {
     if (!maskCanvas) {
@@ -106,7 +117,9 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
       maskCanvas: localMaskCanvasRef.current || maskCanvas,
       maskAdjustments,
       showMaskOverlay,
-      maxDimension: 1600
+      maxDimension: 1600,
+      extend: extendState,
+      text: textState
     });
 
     const canvas = mainCanvasRef.current;
@@ -182,7 +195,9 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     showMaskOverlay,
     isComparing,
     splitPos,
-    activeTool
+    activeTool,
+    extendState,
+    textState
   ]);
 
   useEffect(() => {
@@ -250,6 +265,17 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     return { x: imgX, y: imgY };
   };
 
+  // Schedule brush render with requestAnimationFrame to avoid lag
+  const scheduleBrushRender = useCallback(() => {
+    if (!brushRenderPendingRef.current) {
+      brushRenderPendingRef.current = true;
+      brushRafIdRef.current = requestAnimationFrame(() => {
+        brushRenderPendingRef.current = false;
+        performRender();
+      });
+    }
+  }, [performRender]);
+
   // Brush Painting
   const drawBrushStamp = (x: number, y: number) => {
     if (!localMaskCanvasRef.current && renderDim.width > 0) {
@@ -287,7 +313,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     }
     ctx.restore();
 
-    performRender();
+    scheduleBrushRender();
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -398,6 +424,14 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     if (isPaintingRef.current) {
       isPaintingRef.current = false;
       lastBrushPointRef.current = null;
+
+      // Flush any pending rAF so the final mask state is rendered before commit
+      if (brushRafIdRef.current) {
+        cancelAnimationFrame(brushRafIdRef.current);
+        brushRenderPendingRef.current = false;
+      }
+      performRender();
+
       if (localMaskCanvasRef.current) {
         onMaskStrokeEnd(localMaskCanvasRef.current);
       }
@@ -416,6 +450,10 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         setBrushCursor(c => ({ ...c, visible: false }));
         setIsPanning(false);
         setIsDraggingSplit(false);
+        if (brushRafIdRef.current) {
+          cancelAnimationFrame(brushRafIdRef.current);
+          brushRenderPendingRef.current = false;
+        }
         isPaintingRef.current = false;
       }}
     >

@@ -2,8 +2,10 @@ import {
   AdjustmentsState,
   CurvesState,
   ExportSettings,
+  ExtendState,
   GeometryState,
-  MaskAdjustments
+  MaskAdjustments,
+  TextOverlayState
 } from '../types/editor';
 import { renderPipeline } from '../engine/processor';
 
@@ -16,6 +18,8 @@ export interface ExportImageParams {
   maskAdjustments: MaskAdjustments | null;
   settings: ExportSettings;
   originalFilename: string;
+  extend?: ExtendState;
+  text?: TextOverlayState;
 }
 
 export interface ExportResult {
@@ -39,7 +43,9 @@ export async function exportImage(params: ExportImageParams): Promise<ExportResu
     maskCanvas,
     maskAdjustments,
     settings,
-    originalFilename
+    originalFilename,
+    extend,
+    text
   } = params;
 
   // Render at full native resolution
@@ -50,7 +56,9 @@ export async function exportImage(params: ExportImageParams): Promise<ExportResu
     curves,
     maskCanvas,
     maskAdjustments,
-    showMaskOverlay: false // Never export mask overlay!
+    showMaskOverlay: false, // Never export mask overlay!
+    extend,
+    text
   });
 
   const width = renderedCanvas.width;
@@ -61,7 +69,7 @@ export async function exportImage(params: ExportImageParams): Promise<ExportResu
   let ext = 'jpg';
   if (settings.format === 'image/png') ext = 'png';
   if (settings.format === 'image/webp') ext = 'webp';
-  const finalFilename = `${baseName}-lumina.${ext}`;
+  const finalFilename = `${baseName}-still.${ext}`;
 
   return new Promise<ExportResult>((resolve, reject) => {
     try {

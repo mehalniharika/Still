@@ -61,11 +61,31 @@ export interface SelectiveMaskState {
   maskDataUrl: string | null;
 }
 
+export interface ExtendState {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+  mode: 'mirror' | 'white' | 'black';
+}
+
+export interface TextOverlayState {
+  content: string;
+  style: 'simple' | 'badge' | 'outline' | 'ribbon' | 'knockout';
+  fontFamily: string;
+  fontSize: number;
+  textColor: string;
+  badgeColor: string;
+  opacity: number;
+  posX: number;
+  posY: number;
+}
+
 export interface PresetLook {
   id: string;
   name: string;
   subtitle: string;
-  category: 'classic' | 'moody' | 'creative' | 'film';
+  category: 'classic' | 'moody' | 'creative' | 'film' | 'vintage' | 'vibrant' | 'bw' | 'glow' | 'digicam' | 'cinematic' | string;
   gradient: string;
   adjustments: Partial<AdjustmentsState>;
   curves?: {
@@ -86,6 +106,8 @@ export interface HistoryStep {
   maskDataUrl: string | null;
   maskAdjustments: MaskAdjustments;
   activePresetId: string | null;
+  extend?: ExtendState;
+  text?: TextOverlayState;
 }
 
 export type ActiveTool = 
@@ -95,7 +117,9 @@ export type ActiveTool =
   | 'curves'
   | 'brush'
   | 'presets'
-  | 'history';
+  | 'history'
+  | 'extend'
+  | 'text';
 
 export interface ExportSettings {
   format: 'image/jpeg' | 'image/png' | 'image/webp';

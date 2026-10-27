@@ -1,9 +1,11 @@
 import {
   AdjustmentsState,
   CurvesState,
+  ExtendState,
   GeometryState,
   MaskAdjustments,
-  NormalizedRect
+  NormalizedRect,
+  TextOverlayState
 } from '../types/editor';
 import { buildCurveLUT, isCurvesStateModified } from './curves';
 
@@ -17,6 +19,8 @@ export interface ProcessPipelineOptions {
   showMaskOverlay: boolean;
   targetCanvas?: HTMLCanvasElement;
   maxDimension?: number; // Optional downscale for fast interactive preview
+  extend?: ExtendState;
+  text?: TextOverlayState;
 }
 
 /**
@@ -101,6 +105,261 @@ function isValidCrop(rect: NormalizedRect): boolean {
     rect.height > 0.001 &&
     (rect.x > 0.001 || rect.y > 0.001 || rect.width < 0.999 || rect.height < 0.999)
   );
+}
+
+/**
+ * Expands canvas margins using Smart Mirror or solid color fill.
+ */
+export function applyExtend(
+  sourceCanvas: HTMLCanvasElement,
+  extend?: ExtendState
+): HTMLCanvasElement {
+  if (!extend) return sourceCanvas;
+  const { top = 0, bottom = 0, left = 0, right = 0, mode = 'mirror' } = extend;
+
+  if (top <= 0 && bottom <= 0 && left <= 0 && right <= 0) {
+    return sourceCanvas;
+  }
+
+  const srcW = sourceCanvas.width;
+  const srcH = sourceCanvas.height;
+  const newW = srcW + left + right;
+  const newH = srcH + top + bottom;
+
+  const extCanvas = document.createElement('canvas');
+  extCanvas.width = newW;
+  extCanvas.height = newH;
+  const ctx = extCanvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return sourceCanvas;
+
+  if (mode === 'white') {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, newW, newH);
+    ctx.drawImage(sourceCanvas, left, top);
+    return extCanvas;
+  }
+
+  if (mode === 'black') {
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, newW, newH);
+    ctx.drawImage(sourceCanvas, left, top);
+    return extCanvas;
+  }
+
+  // Smart Mirror Mode
+  // 1. Top margin (mirror vertically from top edge)
+  if (top > 0) {
+    const sliceH = Math.min(top, srcH);
+    ctx.save();
+    ctx.translate(left, top);
+    ctx.scale(1, -1);
+    ctx.drawImage(sourceCanvas, 0, 0, srcW, sliceH, 0, 0, srcW, top);
+    ctx.restore();
+  }
+
+  // 2. Bottom margin (mirror vertically from bottom edge)
+  if (bottom > 0) {
+    const sliceH = Math.min(bottom, srcH);
+    ctx.save();
+    ctx.translate(left, top + srcH);
+    ctx.scale(1, -1);
+    ctx.drawImage(sourceCanvas, 0, srcH - sliceH, srcW, sliceH, 0, -bottom, srcW, bottom);
+    ctx.restore();
+  }
+
+  // 3. Left margin (mirror horizontally from left edge)
+  if (left > 0) {
+    const sliceW = Math.min(left, srcW);
+    ctx.save();
+    ctx.translate(left, top);
+    ctx.scale(-1, 1);
+    ctx.drawImage(sourceCanvas, 0, 0, sliceW, srcH, 0, 0, left, srcH);
+    ctx.restore();
+  }
+
+  // 4. Right margin (mirror horizontally from right edge)
+  if (right > 0) {
+    const sliceW = Math.min(right, srcW);
+    ctx.save();
+    ctx.translate(left + srcW, top);
+    ctx.scale(-1, 1);
+    ctx.drawImage(sourceCanvas, srcW - sliceW, 0, sliceW, srcH, -right, 0, right, srcH);
+    ctx.restore();
+  }
+
+  // 5. Corners (mirror both horizontally and vertically)
+  // Top-Left Corner
+  if (top > 0 && left > 0) {
+    const sliceW = Math.min(left, srcW);
+    const sliceH = Math.min(top, srcH);
+    ctx.save();
+    ctx.translate(left, top);
+    ctx.scale(-1, -1);
+    ctx.drawImage(sourceCanvas, 0, 0, sliceW, sliceH, 0, 0, left, top);
+    ctx.restore();
+  }
+
+  // Top-Right Corner
+  if (top > 0 && right > 0) {
+    const sliceW = Math.min(right, srcW);
+    const sliceH = Math.min(top, srcH);
+    ctx.save();
+    ctx.translate(left + srcW, top);
+    ctx.scale(-1, -1);
+    ctx.drawImage(sourceCanvas, srcW - sliceW, 0, sliceW, sliceH, -right, 0, right, top);
+    ctx.restore();
+  }
+
+  // Bottom-Left Corner
+  if (bottom > 0 && left > 0) {
+    const sliceW = Math.min(left, srcW);
+    const sliceH = Math.min(bottom, srcH);
+    ctx.save();
+    ctx.translate(left, top + srcH);
+    ctx.scale(-1, -1);
+    ctx.drawImage(sourceCanvas, 0, srcH - sliceH, sliceW, sliceH, 0, -bottom, left, bottom);
+    ctx.restore();
+  }
+
+  // Bottom-Right Corner
+  if (bottom > 0 && right > 0) {
+    const sliceW = Math.min(right, srcW);
+    const sliceH = Math.min(bottom, srcH);
+    ctx.save();
+    ctx.translate(left + srcW, top + srcH);
+    ctx.scale(-1, -1);
+    ctx.drawImage(sourceCanvas, srcW - sliceW, srcH - sliceH, sliceW, sliceH, -right, -bottom, right, bottom);
+    ctx.restore();
+  }
+
+  // 6. Draw original pristine content in center
+  ctx.drawImage(sourceCanvas, left, top);
+
+  return extCanvas;
+}
+
+/**
+ * Draws styled typography badge overlays.
+ */
+export function applyTextOverlay(
+  ctx: CanvasRenderingContext2D,
+  text: TextOverlayState | undefined,
+  canvasW: number,
+  canvasH: number
+): void {
+  if (!text || !text.content || !text.content.trim()) return;
+
+  const content = text.content.trim();
+  const scale = Math.max(0.6, Math.min(canvasW, canvasH) / 900);
+  const fontSize = Math.max(14, Math.round(text.fontSize * scale));
+  const posX = text.posX !== undefined ? text.posX : 0.5;
+  const posY = text.posY !== undefined ? text.posY : 0.85;
+
+  const cx = canvasW * posX;
+  const cy = canvasH * posY;
+
+  ctx.save();
+  ctx.globalAlpha = Math.max(0.05, Math.min(1, text.opacity));
+  ctx.font = `600 ${fontSize}px ${text.fontFamily}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  const metrics = ctx.measureText(content);
+  const textW = metrics.width;
+  const textH = fontSize * 1.15;
+  const padX = fontSize * 0.7;
+  const padY = fontSize * 0.35;
+  const boxW = textW + padX * 2;
+  const boxH = textH + padY * 2;
+  const boxX = cx - boxW / 2;
+  const boxY = cy - boxH / 2;
+  const radius = Math.min(boxH / 2, 10 * scale);
+
+  switch (text.style) {
+    case 'simple': {
+      // Clean drop-shadowed typography
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.75)';
+      ctx.shadowBlur = Math.round(6 * scale);
+      ctx.shadowOffsetY = Math.round(2 * scale);
+      ctx.fillStyle = text.textColor;
+      ctx.fillText(content, cx, cy);
+      break;
+    }
+
+    case 'badge': {
+      // Solid rounded pill badge
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+      ctx.shadowBlur = Math.round(12 * scale);
+      ctx.shadowOffsetY = Math.round(4 * scale);
+      ctx.fillStyle = text.badgeColor;
+
+      ctx.beginPath();
+      if (typeof (ctx as any).roundRect === 'function') {
+        (ctx as any).roundRect(boxX, boxY, boxW, boxH, radius);
+      } else {
+        ctx.rect(boxX, boxY, boxW, boxH);
+      }
+      ctx.fill();
+
+      // Reset shadow for text
+      ctx.shadowColor = 'transparent';
+      ctx.fillStyle = text.textColor;
+      ctx.fillText(content, cx, cy);
+      break;
+    }
+
+    case 'outline': {
+      // Outlined elegant box with subtle tint
+      ctx.fillStyle = text.badgeColor;
+      ctx.globalAlpha = Math.max(0.1, text.opacity * 0.4);
+      ctx.beginPath();
+      if (typeof (ctx as any).roundRect === 'function') {
+        (ctx as any).roundRect(boxX, boxY, boxW, boxH, radius);
+      } else {
+        ctx.rect(boxX, boxY, boxW, boxH);
+      }
+      ctx.fill();
+
+      ctx.globalAlpha = text.opacity;
+      ctx.strokeStyle = text.textColor;
+      ctx.lineWidth = Math.max(2, Math.round(2.5 * scale));
+      ctx.stroke();
+
+      ctx.fillStyle = text.textColor;
+      ctx.fillText(content, cx, cy);
+      break;
+    }
+
+    case 'ribbon': {
+      // Full-bleed cinematic letterboxed ribbon
+      const ribbonH = boxH * 1.25;
+      ctx.fillStyle = text.badgeColor;
+      ctx.fillRect(0, cy - ribbonH / 2, canvasW, ribbonH);
+
+      ctx.fillStyle = text.textColor;
+      ctx.fillText(content.toUpperCase(), cx, cy);
+      break;
+    }
+
+    case 'knockout': {
+      // Solid badge with transparent knocked-out text showing background
+      ctx.fillStyle = text.badgeColor;
+      ctx.beginPath();
+      if (typeof (ctx as any).roundRect === 'function') {
+        (ctx as any).roundRect(boxX, boxY, boxW, boxH, radius);
+      } else {
+        ctx.rect(boxX, boxY, boxW, boxH);
+      }
+      ctx.fill();
+
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fillStyle = '#000000';
+      ctx.fillText(content, cx, cy);
+      break;
+    }
+  }
+
+  ctx.restore();
 }
 
 /**
@@ -198,13 +457,12 @@ export function processImageData(
       const hWeight = clampedLum * clampedLum;
       const hOffset = hl * 0.45 * hWeight;
 
-      const toneOffset = sOffset + hOffset;
-      r += toneOffset;
-      g += toneOffset;
-      bVal += toneOffset;
+      r += sOffset + hOffset;
+      g += sOffset + hOffset;
+      bVal += sOffset + hOffset;
     }
 
-    // 4. Warmth / White Balance
+    // 4. Warmth (Temperature)
     if (w !== 0) {
       r += warmR;
       g += warmG;
@@ -213,86 +471,99 @@ export function processImageData(
 
     // 5. Saturation
     if (s !== 0) {
-      const lum = 0.299 * r + 0.587 * g + 0.114 * bVal;
-      r = lum + (r - lum) * satFactor;
-      g = lum + (g - lum) * satFactor;
-      bVal = lum + (bVal - lum) * satFactor;
+      const gray = 0.2989 * r + 0.5870 * g + 0.1140 * bVal;
+      r = gray + (r - gray) * satFactor;
+      g = gray + (g - gray) * satFactor;
+      bVal = gray + (bVal - gray) * satFactor;
     }
 
-    // Clamp before curves
-    r = r < 0 ? 0 : r > 255 ? 255 : r;
-    g = g < 0 ? 0 : g > 255 ? 255 : g;
-    bVal = bVal < 0 ? 0 : bVal > 255 ? 255 : bVal;
+    // Clamp before curve lookup
+    let cR = r < 0 ? 0 : r > 255 ? 255 : Math.round(r);
+    let cG = g < 0 ? 0 : g > 255 ? 255 : Math.round(g);
+    let cB = bVal < 0 ? 0 : bVal > 255 ? 255 : Math.round(bVal);
 
-    // 6. Tone Curves
+    // 6. Tone Curves Lookup
     if (curvesModified && lutRGB && lutR && lutG && lutB) {
-      // Composite RGB curve
-      let cr = lutRGB[Math.round(r)];
-      let cg = lutRGB[Math.round(g)];
-      let cb = lutRGB[Math.round(bVal)];
+      // Individual channel splines
+      cR = lutR[cR];
+      cG = lutG[cG];
+      cB = lutB[cB];
 
-      // Individual channel curves
-      r = lutR[cr];
-      g = lutG[cg];
-      bVal = lutB[cb];
+      // Master composite RGB spline
+      cR = lutRGB[cR];
+      cG = lutRGB[cG];
+      cB = lutRGB[cB];
     }
 
-    // 7. Selective Mask Adjustments
+    // 7. Selective Brush Mask evaluation
     if (hasMask && maskData) {
-      const maskPixelIndex = (i / 4);
-      const maskAlpha = maskData[maskPixelIndex * 4 + 3] / 255.0; // alpha 0..1
+      // Mask alpha stored in R channel (grayscale mask)
+      const maskWeight = maskData[i] / 255;
 
-      if (maskAlpha > 0.005) {
-        // Compute adjusted version of the pixel
-        let mr = r + maskBright;
-        let mg = g + maskBright;
-        let mb = bVal + maskBright;
+      if (maskWeight > 0.005) {
+        let mr = cR;
+        let mg = cG;
+        let mb = cB;
 
-        if (maskAdjustments && maskAdjustments.contrast !== 0) {
+        // Mask brightness
+        if (maskBright !== 0) {
+          mr += maskBright;
+          mg += maskBright;
+          mb += maskBright;
+        }
+
+        // Mask contrast
+        if (maskAdjustments!.contrast !== 0) {
           mr = maskCFactor * (mr - 128) + 128;
           mg = maskCFactor * (mg - 128) + 128;
           mb = maskCFactor * (mb - 128) + 128;
         }
 
-        if (maskAdjustments && maskAdjustments.warmth !== 0) {
+        // Mask warmth
+        if (maskAdjustments!.warmth !== 0) {
           mr += maskWarmR;
           mg += maskWarmG;
           mb += maskWarmB;
         }
 
-        if (maskAdjustments && maskAdjustments.saturation !== 0) {
-          const mLum = 0.299 * mr + 0.587 * mg + 0.114 * mb;
-          mr = mLum + (mr - mLum) * maskSatFactor;
-          mg = mLum + (mg - mLum) * maskSatFactor;
-          mb = mLum + (mb - mLum) * maskSatFactor;
+        // Mask saturation
+        if (maskAdjustments!.saturation !== 0) {
+          const mGray = 0.2989 * mr + 0.5870 * mg + 0.1140 * mb;
+          mr = mGray + (mr - mGray) * maskSatFactor;
+          mg = mGray + (mg - mGray) * maskSatFactor;
+          mb = mGray + (mb - mGray) * maskSatFactor;
         }
 
+        // Clamp mask-adjusted colors
         mr = mr < 0 ? 0 : mr > 255 ? 255 : mr;
         mg = mg < 0 ? 0 : mg > 255 ? 255 : mg;
         mb = mb < 0 ? 0 : mb > 255 ? 255 : mb;
 
-        // Blend with base pixel based on mask weight
-        r = (1 - maskAlpha) * r + maskAlpha * mr;
-        g = (1 - maskAlpha) * g + maskAlpha * mg;
-        bVal = (1 - maskAlpha) * bVal + maskAlpha * mb;
-
-        // Optional ruby overlay representation
-        if (showMaskOverlay) {
-          // Tint towards ruby red: rgba(239, 68, 68, 0.45)
-          const overlayAmount = maskAlpha * 0.45;
-          r = (1 - overlayAmount) * r + overlayAmount * 239;
-          g = (1 - overlayAmount) * g + overlayAmount * 68;
-          bVal = (1 - overlayAmount) * bVal + overlayAmount * 68;
-        }
+        // Blend based on mask weight
+        cR = Math.round(cR * (1 - maskWeight) + mr * maskWeight);
+        cG = Math.round(cG * (1 - maskWeight) + mg * maskWeight);
+        cB = Math.round(cB * (1 - maskWeight) + mb * maskWeight);
       }
     }
 
-    data[i] = r < 0 ? 0 : r > 255 ? 255 : r;
-    data[i + 1] = g < 0 ? 0 : g > 255 ? 255 : g;
-    data[i + 2] = bVal < 0 ? 0 : bVal > 255 ? 255 : bVal;
+    // 8. Visual red mask overlay mode
+    if (showMaskOverlay && maskData) {
+      const maskAlpha = maskData[i] / 255;
+      if (maskAlpha > 0.01) {
+        // Overlay semi-transparent ruby red tint (standard photo mask visualizer)
+        const overlayStrength = maskAlpha * 0.45;
+        cR = Math.round(cR * (1 - overlayStrength) + 235 * overlayStrength);
+        cG = Math.round(cG * (1 - overlayStrength) + 40 * overlayStrength);
+        cB = Math.round(cB * (1 - overlayStrength) + 40 * overlayStrength);
+      }
+    }
+
+    data[i] = cR;
+    data[i + 1] = cG;
+    data[i + 2] = cB;
   }
 
-  // 8. Sharpness (Laplacian high-pass filter)
+  // 9. Sharpness (Convolution pass)
   if (adjustments.sharpness > 0) {
     applySharpness(imgData, adjustments.sharpness);
   }
@@ -338,7 +609,7 @@ function applySharpness(imgData: ImageData, sharpness: number): void {
 
 /**
  * Complete deterministic rendering pipeline.
- * Evaluates geometry, basic adjustments, tone curves, and selective brush masks.
+ * Evaluates geometry, canvas extension/mirror, basic adjustments, tone curves, selective brush masks, and text badges.
  */
 export function renderPipeline(options: ProcessPipelineOptions): HTMLCanvasElement {
   const {
@@ -350,7 +621,9 @@ export function renderPipeline(options: ProcessPipelineOptions): HTMLCanvasEleme
     maskAdjustments,
     showMaskOverlay,
     targetCanvas,
-    maxDimension
+    maxDimension,
+    extend,
+    text
   } = options;
 
   const sourceW = (source as any).naturalWidth || (source as any).videoWidth || (source as any).width;
@@ -358,8 +631,11 @@ export function renderPipeline(options: ProcessPipelineOptions): HTMLCanvasEleme
 
   // Step 1: Geometry & Cropping
   const geomCanvas = applyGeometry(source, geometry, sourceW, sourceH, maxDimension);
-  const width = geomCanvas.width;
-  const height = geomCanvas.height;
+
+  // Step 2: Canvas Padding & Mirror Extrapolation (applied before pixel adjustments)
+  const extendedCanvas = applyExtend(geomCanvas, extend);
+  const width = extendedCanvas.width;
+  const height = extendedCanvas.height;
 
   // Output canvas
   const canvas = targetCanvas || document.createElement('canvas');
@@ -371,8 +647,8 @@ export function renderPipeline(options: ProcessPipelineOptions): HTMLCanvasEleme
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) throw new Error('Could not get 2d rendering context');
 
-  // Draw geometry result
-  ctx.drawImage(geomCanvas, 0, 0);
+  // Draw extended canvas
+  ctx.drawImage(extendedCanvas, 0, 0);
 
   // Check if any pixel adjustments, curves, or masks need to run
   const hasAdjustments =
@@ -387,44 +663,45 @@ export function renderPipeline(options: ProcessPipelineOptions): HTMLCanvasEleme
   const hasCurves = isCurvesStateModified(curves);
   const hasMask = !!(maskCanvas && maskAdjustments);
 
-  if (!hasAdjustments && !hasCurves && !hasMask && !showMaskOverlay) {
-    return canvas;
-  }
+  if (hasAdjustments || hasCurves || hasMask || showMaskOverlay) {
+    // Get image pixels for processing
+    const imgData = ctx.getImageData(0, 0, width, height);
 
-  // Get image pixels for processing
-  const imgData = ctx.getImageData(0, 0, width, height);
-
-  // If there is a selective mask, resample/scale mask to match current canvas dimensions
-  let maskPixelData: Uint8ClampedArray | null = null;
-  if (maskCanvas) {
-    let scaledMask = maskCanvas;
-    if (maskCanvas.width !== width || maskCanvas.height !== height) {
-      scaledMask = document.createElement('canvas');
-      scaledMask.width = width;
-      scaledMask.height = height;
+    // If there is a selective mask, resample/scale mask to match current canvas dimensions
+    let maskPixelData: Uint8ClampedArray | null = null;
+    if (maskCanvas) {
+      let scaledMask = maskCanvas;
+      if (maskCanvas.width !== width || maskCanvas.height !== height) {
+        scaledMask = document.createElement('canvas');
+        scaledMask.width = width;
+        scaledMask.height = height;
+        const mCtx = scaledMask.getContext('2d', { willReadFrequently: true });
+        if (mCtx) {
+          mCtx.drawImage(maskCanvas, 0, 0, width, height);
+        }
+      }
       const mCtx = scaledMask.getContext('2d', { willReadFrequently: true });
       if (mCtx) {
-        mCtx.drawImage(maskCanvas, 0, 0, width, height);
+        maskPixelData = mCtx.getImageData(0, 0, width, height).data;
       }
     }
-    const mCtx = scaledMask.getContext('2d', { willReadFrequently: true });
-    if (mCtx) {
-      maskPixelData = mCtx.getImageData(0, 0, width, height).data;
-    }
+
+    // Step 3, 4, 5: Pixel Adjustments, Curves, and Selective Mask
+    processImageData(
+      imgData,
+      adjustments,
+      curves,
+      maskPixelData,
+      maskAdjustments,
+      showMaskOverlay
+    );
+
+    // Put processed pixels back to canvas
+    ctx.putImageData(imgData, 0, 0);
   }
 
-  // Step 2, 3, 4: Pixel Adjustments, Curves, and Selective Mask
-  processImageData(
-    imgData,
-    adjustments,
-    curves,
-    maskPixelData,
-    maskAdjustments,
-    showMaskOverlay
-  );
-
-  // Put processed pixels back to canvas
-  ctx.putImageData(imgData, 0, 0);
+  // Step 6: Text Typography & Badge Overlay
+  applyTextOverlay(ctx, text, width, height);
 
   return canvas;
 }

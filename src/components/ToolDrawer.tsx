@@ -6,7 +6,9 @@ import {
   Crop,
   Spline,
   Paintbrush,
-  Layers
+  Layers,
+  Maximize2,
+  Type
 } from 'lucide-react';
 
 interface ToolDrawerProps {
@@ -17,6 +19,8 @@ interface ToolDrawerProps {
   hasCurves: boolean;
   hasMask: boolean;
   hasPreset: boolean;
+  hasExtend?: boolean;
+  hasText?: boolean;
   historyCount: number;
 }
 
@@ -35,6 +39,8 @@ export const ToolDrawer: React.FC<ToolDrawerProps> = ({
   hasCurves,
   hasMask,
   hasPreset,
+  hasExtend,
+  hasText,
   historyCount
 }) => {
   const tools: ToolItem[] = [
@@ -43,6 +49,8 @@ export const ToolDrawer: React.FC<ToolDrawerProps> = ({
     { id: 'crop', label: 'Crop', icon: Crop, isModified: hasCrop },
     { id: 'curves', label: 'Curves', icon: Spline, isModified: hasCurves },
     { id: 'brush', label: 'Brush', icon: Paintbrush, isModified: hasMask },
+    { id: 'extend', label: 'Expand', icon: Maximize2, isModified: !!hasExtend },
+    { id: 'text', label: 'Text', icon: Type, isModified: !!hasText },
     { id: 'history', label: 'View Edits', icon: Layers, isModified: historyCount > 1 }
   ];
 

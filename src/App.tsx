@@ -5,11 +5,13 @@ import {
   BrushSettings,
   CurvesState,
   ExportSettings,
+  ExtendState,
   GeometryState,
   HistoryStep,
   MaskAdjustments,
   NormalizedRect,
-  PresetLook
+  PresetLook,
+  TextOverlayState
 } from './types/editor';
 import { getDefaultCurvesState, isCurvesStateModified } from './engine/curves';
 import { generateSamplePhotograph } from './utils/sampleImage';
@@ -25,6 +27,8 @@ import { PresetsPanel } from './components/PresetsPanel';
 import { HistoryPanel } from './components/HistoryPanel';
 import { ExportModal } from './components/ExportModal';
 import { EmptyState } from './components/EmptyState';
+import { ExtendPanel } from './components/ExtendPanel';
+import { TextPanel } from './components/TextPanel';
 
 const DEFAULT_ADJUSTMENTS: AdjustmentsState = {
   brightness: 0,
@@ -57,6 +61,26 @@ const DEFAULT_BRUSH_SETTINGS: BrushSettings = {
   mode: 'paint'
 };
 
+const DEFAULT_EXTEND: ExtendState = {
+  top: 0,
+  bottom: 0,
+  left: 0,
+  right: 0,
+  mode: 'mirror'
+};
+
+const DEFAULT_TEXT: TextOverlayState = {
+  content: '',
+  style: 'simple',
+  fontFamily: "'Inter', sans-serif",
+  fontSize: 32,
+  textColor: '#ffffff',
+  badgeColor: '#000000',
+  opacity: 1,
+  posX: 0.5,
+  posY: 0.85
+};
+
 export const App: React.FC = () => {
   // Document state
   const [originalImage, setOriginalImage] = useState<HTMLImageElement | null>(null);
@@ -86,6 +110,10 @@ export const App: React.FC = () => {
   const [brushSettings, setBrushSettings] = useState<BrushSettings>(DEFAULT_BRUSH_SETTINGS);
   const [maskAdjustments, setMaskAdjustments] = useState<MaskAdjustments>(DEFAULT_MASK_ADJUSTMENTS);
 
+  // Extend & Text state
+  const [extendState, setExtendState] = useState<ExtendState>(DEFAULT_EXTEND);
+  const [textState, setTextState] = useState<TextOverlayState>(DEFAULT_TEXT);
+
   // History ledger
   const [history, setHistory] = useState<HistoryStep[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
@@ -98,6 +126,8 @@ export const App: React.FC = () => {
       const stepCurves = overrides?.curves ?? curves;
       const stepPreset = overrides?.activePresetId !== undefined ? overrides.activePresetId : activePresetId;
       const stepMaskAdjustments = overrides?.maskAdjustments ?? maskAdjustments;
+      const stepExtend = overrides?.extend ?? extendState;
+      const stepText = overrides?.text ?? textState;
 
       // Serialize mask data url if mask canvas has content
       let maskDataUrl: string | null = null;
@@ -114,7 +144,9 @@ export const App: React.FC = () => {
         curves: JSON.parse(JSON.stringify(stepCurves)),
         maskDataUrl,
         maskAdjustments: { ...stepMaskAdjustments },
-        activePresetId: stepPreset
+        activePresetId: stepPreset,
+        extend: { ...stepExtend },
+        text: { ...stepText }
       };
 
       setHistory((prev) => {
@@ -123,7 +155,7 @@ export const App: React.FC = () => {
       });
       setHistoryIndex((prev) => prev + 1);
     },
-    [geometry, adjustments, curves, activePresetId, maskAdjustments, maskHasContent, historyIndex]
+    [geometry, adjustments, curves, activePresetId, maskAdjustments, maskHasContent, historyIndex, extendState, textState]
   );
 
   // Restore a specific history step
@@ -136,6 +168,8 @@ export const App: React.FC = () => {
     setCurves(JSON.parse(JSON.stringify(step.curves)));
     setActivePresetId(step.activePresetId);
     setMaskAdjustments({ ...step.maskAdjustments });
+    setExtendState(step.extend ? { ...step.extend } : DEFAULT_EXTEND);
+    setTextState(step.text ? { ...step.text } : DEFAULT_TEXT);
 
     // Restore mask canvas
     if (step.maskDataUrl && originalImage) {
@@ -185,6 +219,8 @@ export const App: React.FC = () => {
       setCurves(JSON.parse(JSON.stringify(rootStep.curves)));
       setActivePresetId(null);
       setMaskAdjustments(DEFAULT_MASK_ADJUSTMENTS);
+      setExtendState(DEFAULT_EXTEND);
+      setTextState(DEFAULT_TEXT);
       if (maskCanvasRef.current) {
         const ctx = maskCanvasRef.current.getContext('2d');
         if (ctx) ctx.clearRect(0, 0, maskCanvasRef.current.width, maskCanvasRef.current.height);
@@ -196,7 +232,9 @@ export const App: React.FC = () => {
         adjustments: DEFAULT_ADJUSTMENTS,
         curves: getDefaultCurvesState(),
         activePresetId: null,
-        maskAdjustments: DEFAULT_MASK_ADJUSTMENTS
+        maskAdjustments: DEFAULT_MASK_ADJUSTMENTS,
+        extend: DEFAULT_EXTEND,
+        text: DEFAULT_TEXT
       });
     }
   };
@@ -245,6 +283,8 @@ export const App: React.FC = () => {
       setCurves(getDefaultCurvesState());
       setActivePresetId(null);
       setMaskAdjustments(DEFAULT_MASK_ADJUSTMENTS);
+      setExtendState(DEFAULT_EXTEND);
+      setTextState(DEFAULT_TEXT);
       setActiveTool('adjust');
       setZoomLevel(1.0);
       setIsComparing(false);
@@ -259,14 +299,16 @@ export const App: React.FC = () => {
       // Initial root history step
       const rootStep: HistoryStep = {
         id: 'step-root',
-        label: `Opened ${filename}`,
+        label: 'Original Photo',
         timestamp: Date.now(),
         geometry: DEFAULT_GEOMETRY,
         adjustments: DEFAULT_ADJUSTMENTS,
         curves: getDefaultCurvesState(),
         maskDataUrl: null,
         maskAdjustments: DEFAULT_MASK_ADJUSTMENTS,
-        activePresetId: null
+        activePresetId: null,
+        extend: DEFAULT_EXTEND,
+        text: DEFAULT_TEXT
       };
 
       setHistory([rootStep]);
@@ -339,7 +381,55 @@ export const App: React.FC = () => {
 
   const handleAdjustmentsReset = () => {
     setAdjustments(DEFAULT_ADJUSTMENTS);
-    commitHistoryStep('Reset Tune Image', { adjustments: DEFAULT_ADJUSTMENTS });
+    commitHistoryStep('Reset Adjustments', { adjustments: DEFAULT_ADJUSTMENTS });
+  };
+
+  // Crop & Geometry handlers
+  const handleRotate = () => {
+    const nextRot = ((geometry.rotation + 90) % 360) as 0 | 90 | 180 | 270;
+    const newGeom: GeometryState = {
+      ...geometry,
+      rotation: nextRot
+    };
+    setGeometry(newGeom);
+    commitHistoryStep('Rotate 90°', { geometry: newGeom });
+  };
+
+  const handleFlipH = () => {
+    const newGeom: GeometryState = { ...geometry, flipH: !geometry.flipH };
+    setGeometry(newGeom);
+    commitHistoryStep('Flip Horizontal', { geometry: newGeom });
+  };
+
+  const handleFlipV = () => {
+    const newGeom: GeometryState = { ...geometry, flipV: !geometry.flipV };
+    setGeometry(newGeom);
+    commitHistoryStep('Flip Vertical', { geometry: newGeom });
+  };
+
+  const handleApplyCrop = () => {
+    const newGeom: GeometryState = {
+      ...geometry,
+      cropRect: tempCropRect
+    };
+    setGeometry(newGeom);
+    setActiveTool('none');
+    commitHistoryStep('Applied Crop', { geometry: newGeom });
+  };
+
+  const handleCancelCrop = () => {
+    setTempCropRect(geometry.cropRect || { x: 0, y: 0, width: 1, height: 1 });
+    setActiveTool('none');
+  };
+
+  const handleResetCrop = () => {
+    const newGeom: GeometryState = {
+      ...geometry,
+      cropRect: null
+    };
+    setGeometry(newGeom);
+    setTempCropRect({ x: 0, y: 0, width: 1, height: 1 });
+    commitHistoryStep('Reset Crop', { geometry: newGeom });
   };
 
   // Curves handlers
@@ -351,56 +441,18 @@ export const App: React.FC = () => {
     commitHistoryStep('Curves Adjustment', { curves: newCurves });
   };
 
-  // Crop & Orientation handlers
-  const handleRotate = (deltaDegrees: number) => {
-    const newRot = (geometry.rotation + deltaDegrees + 360) % 360;
-    const updated = { ...geometry, rotation: newRot };
-    setGeometry(updated);
-    commitHistoryStep(`Rotate ${deltaDegrees > 0 ? '+90°' : '-90°'}`, { geometry: updated });
-  };
-
-  const handleFlipH = () => {
-    const updated = { ...geometry, flipH: !geometry.flipH };
-    setGeometry(updated);
-    commitHistoryStep('Flip Horizontal', { geometry: updated });
-  };
-
-  const handleFlipV = () => {
-    const updated = { ...geometry, flipV: !geometry.flipV };
-    setGeometry(updated);
-    commitHistoryStep('Flip Vertical', { geometry: updated });
-  };
-
-  const handleApplyCrop = () => {
-    const updated = { ...geometry, cropRect: tempCropRect };
-    setGeometry(updated);
-    commitHistoryStep('Applied Crop', { geometry: updated });
-    setActiveTool('none');
-  };
-
-  const handleCancelCrop = () => {
-    setTempCropRect(geometry.cropRect || { x: 0, y: 0, width: 1, height: 1 });
-    setActiveTool('none');
-  };
-
-  const handleResetCrop = () => {
-    const fullRect = { x: 0, y: 0, width: 1, height: 1 };
-    setTempCropRect(fullRect);
-    setCropAspectRatio(null);
-  };
-
-  // Sync tempCropRect when crop tool is activated
-  useEffect(() => {
-    if (activeTool === 'crop') {
-      setTempCropRect(geometry.cropRect || { x: 0, y: 0, width: 1, height: 1 });
-    }
-  }, [activeTool, geometry.cropRect]);
-
-  // Brush mask handlers
-  const handleMaskStrokeEnd = (canvas: HTMLCanvasElement) => {
-    maskCanvasRef.current = canvas;
+  // Selective Mask handlers
+  const handleMaskStrokeEnd = (newMaskCanvas: HTMLCanvasElement) => {
     setMaskHasContent(true);
-    commitHistoryStep('Selective Brush Stroke');
+    commitHistoryStep('Brush Stroke');
+  };
+
+  const handleMaskAdjustmentsChange = (newMaskAdj: MaskAdjustments) => {
+    setMaskAdjustments(newMaskAdj);
+  };
+
+  const handleMaskAdjustmentsCommit = (newMaskAdj: MaskAdjustments) => {
+    commitHistoryStep('Tune Selective Brush', { maskAdjustments: newMaskAdj });
   };
 
   const handleClearMask = () => {
@@ -409,35 +461,28 @@ export const App: React.FC = () => {
       if (ctx) ctx.clearRect(0, 0, maskCanvasRef.current.width, maskCanvasRef.current.height);
     }
     setMaskHasContent(false);
-    commitHistoryStep('Cleared Selective Mask');
+    commitHistoryStep('Cleared Brush Mask');
   };
 
   const handleInvertMask = () => {
-    if (!maskCanvasRef.current) return;
+    if (!maskCanvasRef.current || !originalImage) return;
     const ctx = maskCanvasRef.current.getContext('2d');
     if (!ctx) return;
+
     const imgData = ctx.getImageData(0, 0, maskCanvasRef.current.width, maskCanvasRef.current.height);
     const d = imgData.data;
     for (let i = 0; i < d.length; i += 4) {
-      d[i + 3] = 255 - d[i + 3];
-      d[i] = 255;
-      d[i + 1] = 255;
-      d[i + 2] = 255;
+      d[i] = 255 - d[i];       // Invert alpha/luminance
+      d[i + 1] = 255 - d[i + 1];
+      d[i + 2] = 255 - d[i + 2];
+      d[i + 3] = 255;
     }
     ctx.putImageData(imgData, 0, 0);
     setMaskHasContent(true);
-    commitHistoryStep('Inverted Mask');
+    commitHistoryStep('Inverted Brush Mask');
   };
 
-  const handleMaskAdjustmentsChange = (newAdjustments: MaskAdjustments) => {
-    setMaskAdjustments(newAdjustments);
-  };
-
-  const handleMaskAdjustmentsCommit = (newAdjustments: MaskAdjustments) => {
-    commitHistoryStep('Brush Adjustments', { maskAdjustments: newAdjustments });
-  };
-
-  // Export handler
+  // Full-Res Export Handler
   const handleExport = async (settings: ExportSettings) => {
     if (!originalImage) return;
 
@@ -449,7 +494,9 @@ export const App: React.FC = () => {
       maskCanvas: maskHasContent ? maskCanvasRef.current : null,
       maskAdjustments: maskHasContent ? maskAdjustments : null,
       settings,
-      originalFilename
+      originalFilename,
+      extend: extendState,
+      text: textState
     });
 
     triggerDownload(result.dataUrl, result.filename);
@@ -461,6 +508,8 @@ export const App: React.FC = () => {
   );
   const hasCropModified = geometry.rotation !== 0 || geometry.flipH || geometry.flipV || geometry.cropRect !== null;
   const hasCurvesModified = isCurvesStateModified(curves);
+  const hasExtendModified = extendState.top > 0 || extendState.bottom > 0 || extendState.left > 0 || extendState.right > 0;
+  const hasTextModified = textState.content.trim().length > 0;
 
   // Compute current rendered output dimensions for export display
   let computedExportW = originalImage?.width || 0;
@@ -474,6 +523,8 @@ export const App: React.FC = () => {
     computedExportW = Math.round(computedExportW * geometry.cropRect.width);
     computedExportH = Math.round(computedExportH * geometry.cropRect.height);
   }
+  computedExportW += (extendState.left + extendState.right);
+  computedExportH += (extendState.top + extendState.bottom);
 
   return (
     <div className="app-root">
@@ -510,6 +561,8 @@ export const App: React.FC = () => {
             hasCurves={hasCurvesModified}
             hasMask={maskHasContent}
             hasPreset={!!activePresetId}
+            hasExtend={hasExtendModified}
+            hasText={hasTextModified}
             historyCount={history.length}
           />
 
@@ -580,6 +633,32 @@ export const App: React.FC = () => {
                 />
               )}
 
+              {activeTool === 'extend' && (
+                <ExtendPanel
+                  extendState={extendState}
+                  onChange={(newState) => {
+                    setExtendState(newState);
+                  }}
+                  onReset={() => {
+                    setExtendState(DEFAULT_EXTEND);
+                    commitHistoryStep('Reset Expand', { extend: DEFAULT_EXTEND });
+                  }}
+                />
+              )}
+
+              {activeTool === 'text' && (
+                <TextPanel
+                  textState={textState}
+                  onChange={(newState) => {
+                    setTextState(newState);
+                  }}
+                  onReset={() => {
+                    setTextState(DEFAULT_TEXT);
+                    commitHistoryStep('Clear Text', { text: DEFAULT_TEXT });
+                  }}
+                />
+              )}
+
               {activeTool === 'history' && (
                 <HistoryPanel
                   history={history}
@@ -610,6 +689,8 @@ export const App: React.FC = () => {
             onMaskStrokeEnd={handleMaskStrokeEnd}
             zoomLevel={zoomLevel}
             onZoomChange={setZoomLevel}
+            extendState={extendState}
+            textState={textState}
           />
         </div>
       ) : (
